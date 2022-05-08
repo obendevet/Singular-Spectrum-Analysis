@@ -1,0 +1,53 @@
+import numpy as np
+
+class SSA:
+    def __init__(self, L: int, r: int) -> None:
+        self.L = L
+        self.r = r
+    
+    def fit(self, ts: np.array):
+        self.ts = ts
+        self.N = ts.shape[0]
+        self.K = self.N - self.L + 1
+        
+        self.trajectory_matrix = np.column_stack([self.ts[i:i+self.L] for i in range(0, self.K)])
+        self.S = self.trajectory_matrix@self.trajectory_matrix.T / self.K
+        self.U, self.Sigma, Vtransposed = np.linalg.svd(self.S)
+        self.V = Vtransposed.T
+        
+        self.PC = self.trajectory_matrix.T@self.V
+        self.R = self._calculate_R()
+        
+        self.reconstructed = np.sum(self.R[:, :self.r], axis=1) 
+        return self
+    
+    def predict(self, h: int) -> np.array:
+        self.A = self._calculate_A()
+        self.forecasted = self._forecast(h)
+        return self.forecasted
+
+    def _calculate_R(self) -> np.array:
+        R = np.zeros((self.N, self.L))
+        for m in range(self.L):
+            inp = self.PC[:, m].reshape(-1, 1)@self.V[:,m].reshape(1, -1)
+            inp = inp[::-1]
+            for n in range(self.N):
+                R[n, m] = np.mean(np.diag(inp, -(self.K-1)+n))
+        return R
+    
+    def _calculate_A(self) -> np.array:
+        left = self.V[:self.L-1, :self.L-1].T
+        right = self.V[self.L-1, :self.L-1].T
+        A = np.linalg.solve(left, right)[::-1]
+        return A
+    
+    def _forecast(self, h: int) -> np.array:
+        forecasted_ts = self.reconstructed.copy()
+        for i in range(self.N, self.N+h):
+            x_i = sum([self.A[j] * forecasted_ts[i-j-1] for j in range(self.L-1)])
+            forecasted_ts = np.append(forecasted_ts, x_i)
+        return forecasted_ts[self.N:]
+    
+    def fit_predict(self, ts: np.array, h: int) -> np.array:
+        self.fit(ts)
+        return self.predict(h)
